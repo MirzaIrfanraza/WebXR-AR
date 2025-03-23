@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!-- <!DOCTYPE html>
 <html lang="en">
   <head>
     <title>three.js AR - Hit Test (CDN version)</title>
@@ -150,6 +150,198 @@
 
               if (pose) {
                 // Update reticle position
+                reticle.visible = true;
+                reticle.matrix.fromArray(pose.transform.matrix);
+              }
+            } else {
+              reticle.visible = false;
+            }
+          }
+        }
+
+        renderer.render(scene, camera);
+      }
+    </script>
+  </body>
+</html>
+ -->
+
+
+
+ <!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>three.js AR - Hit Test with glTF Model</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+
+    <style>
+      body, html {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        font-family: sans-serif;
+      }
+      #info {
+        position: absolute;
+        top: 10px; left: 10px;
+        color: #fff;
+        z-index: 999;
+        background: rgba(0,0,0,0.5);
+        padding: 5px 10px;
+        border-radius: 4px;
+      }
+    </style>
+
+    <!-- 
+      Import map: Tells the browser how to resolve imports for 'three' and the 
+      add-ons folder. Adjust the version or paths as needed.
+    -->
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.146.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.146.0/examples/jsm/"
+      }
+    }
+    </script>
+  </head>
+  <body>
+    <div id="info">
+      <a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> AR - Hit Test (Load glTF)
+    </div>
+
+    <script type="module">
+      import * as THREE from 'three';
+      import { ARButton } from 'three/addons/webxr/ARButton.js';
+      import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+      let camera, scene, renderer;
+      let controller;
+      let reticle;
+
+      let hitTestSource = null;
+      let hitTestSourceRequested = false;
+
+      // We'll store our loaded glTF scene in this variable
+      let gltfModel = null;
+
+      init();
+      loadModel(); // load the glTF model
+
+      function init() {
+
+        // Scene setup
+        scene = new THREE.Scene();
+        camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 0.01, 20 );
+
+        // Basic light
+        const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 3);
+        light.position.set(0.5, 1, 0.25);
+        scene.add(light);
+
+        // Renderer
+        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setPixelRatio(window.devicePixelRatio);
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.xr.enabled = true;
+        document.body.appendChild(renderer.domElement);
+
+        // AR Button (requests AR session w/ hit-test)
+        document.body.appendChild(ARButton.createButton(renderer, {
+          requiredFeatures: ['hit-test']
+        }));
+
+        // Reticle for indicating where the plane is
+        reticle = new THREE.Mesh(
+          new THREE.RingGeometry(0.15, 0.20, 32).rotateX(-Math.PI / 2),
+          new THREE.MeshBasicMaterial()
+        );
+        reticle.matrixAutoUpdate = false;
+        reticle.visible = false;
+        scene.add(reticle);
+
+        // Controller: handle user taps (select)
+        controller = renderer.xr.getController(0);
+        controller.addEventListener('select', onSelect);
+        scene.add(controller);
+
+        window.addEventListener('resize', onWindowResize);
+
+        // Start render loop
+        renderer.setAnimationLoop(animate);
+      }
+
+      // Load your glTF model
+      function loadModel() {
+        const loader = new GLTFLoader();
+        loader.load(
+          // Path to your .gltf or .glb file. Adjust as needed.
+          // If your model is in a 'models' folder, use './models/myModel.gltf'
+          'myModel.gltf',
+          (gltf) => {
+            gltfModel = gltf.scene;
+            // Optionally set an initial scale if your model is huge or tiny
+            gltfModel.scale.set(0.5, 0.5, 0.5);
+          },
+          undefined,
+          (error) => {
+            console.error('Error loading glTF model:', error);
+          }
+        );
+      }
+
+      function onSelect() {
+        // Place the glTF model where the reticle is, if the model is loaded
+        if (reticle.visible && gltfModel) {
+          // If you want multiple copies, clone the scene each time
+          const clone = gltfModel.clone();
+
+          // Decompose the reticle's matrix into position, rotation, etc.
+          reticle.matrix.decompose(clone.position, clone.quaternion, clone.scale);
+
+          // Add to the scene
+          scene.add(clone);
+        }
+      }
+
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      function animate(timestamp, frame) {
+        if (frame) {
+          const referenceSpace = renderer.xr.getReferenceSpace();
+          const session = renderer.xr.getSession();
+
+          // Request a hit test source if we haven't yet
+          if (!hitTestSourceRequested) {
+            session.requestReferenceSpace('viewer').then((viewerSpace) => {
+              session.requestHitTestSource({ space: viewerSpace }).then((source) => {
+                hitTestSource = source;
+              });
+            });
+
+            // Reset when the session ends
+            session.addEventListener('end', () => {
+              hitTestSourceRequested = false;
+              hitTestSource = null;
+            });
+
+            hitTestSourceRequested = true;
+          }
+
+          // Perform hit test
+          if (hitTestSource) {
+            const hitTestResults = frame.getHitTestResults(hitTestSource);
+            if (hitTestResults.length > 0) {
+              const hit = hitTestResults[0];
+              const pose = hit.getPose(referenceSpace);
+
+              if (pose) {
+                // Position the reticle at the hit test
                 reticle.visible = true;
                 reticle.matrix.fromArray(pose.transform.matrix);
               }
